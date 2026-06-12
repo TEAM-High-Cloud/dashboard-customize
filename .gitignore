@@ -1,0 +1,18 @@
+# 오픈스택 순정 소스코드 폴더 전체 제외
+skyline-console/
+
+# 환경 변수 및 비밀번호가 들어간 보안 파일들 제외
+.env
+.env.local
+.env.development.local
+*.env
+config.json
+secret.key
+credentials/
+
+# OS 및 IDE 자동 생성 유령 파일들 제외
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/__pycache__/
+*.pyc
