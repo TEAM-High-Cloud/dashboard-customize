@@ -124,7 +124,7 @@ export class StepCreate extends StepAction {
     );
   }
 
-  get showQuota() { return true; }
+  get showQuota() { return false; }
 
   onCountChange = (value) => {
     const { data } = this.state;

@@ -2,7 +2,7 @@ import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'rea
 import { Table, Tabs, message } from 'antd';
 import axios from 'axios';
 
-const API = process.env.REACT_APP_API_URL;
+const API = 'http://192.168.10.10:8003';
 
 const networkColumns = [
   { title: '이름', dataIndex: 'name' },
@@ -22,12 +22,12 @@ const securityGroupColumns = [
 ];
 
 const NetworkStep = forwardRef(function MyNetworkStep(props, ref) {
-  const { updateContext } = props;
+  const { updateContext, context } = props;
 
   const [networks, setNetworks] = useState([]);
   const [securityGroups, setSecurityGroups] = useState([]);
-  const [selectedNetworkKeys, setSelectedNetworkKeys] = useState([]);
-  const [selectedSecGroupKeys, setSelectedSecGroupKeys] = useState([]);
+  const [selectedNetworkKeys, setSelectedNetworkKeys] = useState(context?.network_ids ?? []);
+  const [selectedSecGroupKeys, setSelectedSecGroupKeys] = useState(context?.security_groups ?? []);
   const [netTab, setNetTab] = useState('project');
 
   useImperativeHandle(ref, () => ({

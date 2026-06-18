@@ -2,7 +2,7 @@ import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'rea
 import { Table, Tabs, InputNumber, message } from 'antd';
 import axios from 'axios';
 
-const API = process.env.REACT_APP_API_URL;
+const API = 'http://192.168.10.10:8003';
 
 const flavorColumns = [
   { title: '이름', dataIndex: 'label' },
@@ -23,12 +23,17 @@ const QuotaCard = ({ title, used, added, max }) => {
   const radius = 42;
   const circ = 2 * Math.PI * radius;
   const offset = circ - (pct / 100) * circ;
+  const getColor = (pct) => {
+    if (pct >= 90) return '#ff4d4f';  // 빨강
+    if (pct >= 70) return '#faad14';  // 노랑
+    return '#52c41a';                  // 초록
+  };
   return (
     <div style={{ background: '#f8faff', border: '1px solid #e0eaff', borderRadius: 14, padding: '20px 16px', textAlign: 'center', width: 160 }}>
       <div style={{ fontSize: 13, color: '#444', marginBottom: 12, fontWeight: 'bold' }}>{title}</div>
       <svg width="110" height="110" viewBox="0 0 100 100">
         <circle cx="50" cy="50" r={radius} fill="none" stroke="#e0eaff" strokeWidth="10" />
-        <circle cx="50" cy="50" r={radius} fill="none" stroke={added > 0 ? '#52c41a' : '#1677ff'} strokeWidth="10"
+        <circle cx="50" cy="50" r={radius} fill="none" stroke={getColor(pct)} strokeWidth="10"
           strokeDasharray={circ} strokeDashoffset={offset}
           transform="rotate(-90 50 50)" strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.3s' }} />
         <text x="50" y="46" textAnchor="middle" fontSize="18" fontWeight="bold" fill="#1677ff">{totalUsed}</text>
@@ -39,18 +44,18 @@ const QuotaCard = ({ title, used, added, max }) => {
 };
 
 const BaseStep = forwardRef(function MyBaseStep(props, ref) {
-  const { updateContext } = props;
+  const { updateContext, context } = props;
 
   const [flavors, setFlavors] = useState([]);
   const [images, setImages] = useState([]);
   const [quota, setQuota] = useState(null);
-  const [selectedFlavorKey, setSelectedFlavorKey] = useState(null);
-  const [selectedImageKey, setSelectedImageKey] = useState(null);
+  const [selectedFlavorKey, setSelectedFlavorKey] = useState(context?.flavor ?? null);
+  const [selectedImageKey, setSelectedImageKey] = useState(context?.image ?? null);
   const [sourceTab, setSourceTab] = useState('image');
-  const [bootFromVolume, setBootFromVolume] = useState(true);
-  const [diskSize, setDiskSize] = useState(20);
-  const [addedCores, setAddedCores] = useState(0);
-  const [addedRam, setAddedRam] = useState(0);
+  const [bootFromVolume, setBootFromVolume] = useState(context?.bootFromVolume ?? true);
+  const [diskSize, setDiskSize] = useState(context?.diskSize ?? 20);
+  const [addedCores, setAddedCores] = useState(context?.vcpus ?? 0);
+  const [addedRam, setAddedRam] = useState(context?.ram ?? 0);
 
   useImperativeHandle(ref, () => ({
     validate: () => {

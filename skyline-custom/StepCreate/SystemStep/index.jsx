@@ -2,19 +2,19 @@ import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'rea
 import { Input, Table, message } from 'antd';
 import axios from 'axios';
 
-const API = process.env.REACT_APP_API_URL;
+const API = 'http://192.168.10.10:8003';
 
 const keypairColumns = [
   { title: '이름', dataIndex: 'name' },
 ];
 
 const SystemStep = forwardRef(function MySystemStep(props, ref) {
-  const { updateContext } = props;
+  const { updateContext, context } = props;
 
-  const [instanceName, setInstanceName] = useState('');
+  const [instanceName, setInstanceName] = useState(context?.name ?? '');
   const [nameError, setNameError] = useState(null);
   const [keypairs, setKeypairs] = useState([]);
-  const [selectedKeypair, setSelectedKeypair] = useState(null);
+  const [selectedKeypair, setSelectedKeypair] = useState(context?.keypair ?? null);
 
   const validateName = (value) => {
     if (!value) return '인스턴스 이름을 입력해 주세요.';
