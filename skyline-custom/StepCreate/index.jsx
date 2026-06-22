@@ -16,6 +16,7 @@ import SystemStep from './SystemStep';
 import NetworkStep from './NetworkStep';
 import BaseStep from './BaseStep';
 import styles from './index.less';
+import globalRootStore from 'stores/root';
 
 export class StepCreate extends StepAction {
   static id = 'instance-create';
@@ -155,7 +156,17 @@ export class StepCreate extends StepAction {
 
   onOk = () => {
     const { data } = this.state;
-    console.log('전송 데이터:', data);
+
+    const rawToken = localStorage.getItem('keystone_token');
+    let cleanToken = '';
+    if (rawToken) {
+      try {
+        const tokenObj = JSON.parse(rawToken);
+        cleanToken = tokenObj.value || '';
+      } catch (e) {
+        cleanToken = rawToken;
+      }
+    }
 
     const body = {
       name: data.name,
@@ -166,11 +177,20 @@ export class StepCreate extends StepAction {
       security_group: data.security_groups?.[0] || data.security_group,
       security_groups: data.security_groups,
       keypair: data.keypair,
+      login_mode: data.loginMode || 'password',
+      login_user: data.login_user,
+      login_password: data.login_password,
     };
+
+    const projectId = globalRootStore.projectId || '';  
 
     fetch('http://192.168.10.10:8003/create-instance', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Auth-Token': cleanToken,
+        'X-Project-Id': projectId,
+      },
       body: JSON.stringify(body),
     })
       .then(res => res.json())

@@ -1,8 +1,29 @@
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Table, Tabs, InputNumber, message } from 'antd';
 import axios from 'axios';
+import globalRootStore from 'stores/root';
 
 const API = 'http://192.168.10.10:8003';
+
+const getAuthHeaders = () => {
+  const rawToken = localStorage.getItem('keystone_token');
+  let cleanToken = '';
+  if (rawToken) {
+    try {
+      const tokenObj = JSON.parse(rawToken);
+      cleanToken = tokenObj.value || '';
+    } catch (e) {
+      cleanToken = rawToken;
+    }
+  }
+
+  const projectId = globalRootStore.projectId || '';
+
+  return {
+    'X-Auth-Token': cleanToken,
+    'X-Project-Id': projectId,
+  };
+};
 
 const flavorColumns = [
   { title: '이름', dataIndex: 'label' },
@@ -58,23 +79,55 @@ const BaseStep = forwardRef(function MyBaseStep(props, ref) {
   const [addedRam, setAddedRam] = useState(context?.ram ?? 0);
 
   useImperativeHandle(ref, () => ({
-    validate: () => {
+  wrappedInstance: {
+    checkFormInput: (callback) => {
       if (!selectedFlavorKey) {
         message.error('인스턴스 유형을 선택해 주세요.');
-        return false;
+        return;
       }
       if (!selectedImageKey) {
         message.error('OS 이미지를 선택해 주세요.');
-        return false;
+        return;
       }
-      return true;
+      if (quota) {
+        const totalCores = quota.cores.used + addedCores;
+        const totalRam = Math.round(quota.ram.used / 1024) + addedRam;
+        if (totalCores > quota.cores.max) {
+          message.error('CPU 할당량이 부족합니다.');
+          return;
+        }
+        if (totalRam > Math.round(quota.ram.max / 1024)) {
+          message.error('메모리 할당량이 부족합니다.');
+          return;
+        }
+        if (bootFromVolume) {
+          const volLeft = quota.volumes.max - quota.volumes.used;
+          const volCapLeft = quota.volume_gb.max - quota.volume_gb.used;
+          if (volLeft <= 0) { message.error('볼륨 할당량이 부족합니다.'); return; }
+          if (volCapLeft < diskSize) { message.error('볼륨 용량 할당량이 부족합니다.'); return; }
+        }
+      }
+      callback({
+        flavor: selectedFlavorKey,
+        image: selectedImageKey,
+        bootFromVolume,
+        diskSize,
+        vcpus: addedCores,
+        ram: addedRam,
+      });
     }
-  }));
+  },
+  validate: () => {
+    if (!selectedFlavorKey) { message.error('인스턴스 유형을 선택해 주세요.'); return false; }
+    if (!selectedImageKey) { message.error('OS 이미지를 선택해 주세요.'); return false; }
+    return true;
+  }
+}));
 
   useEffect(() => {
-    axios.get(`${API}/flavors`).then(res => setFlavors(res.data));
-    axios.get(`${API}/images`).then(res => setImages(res.data));
-    axios.get(`${API}/quota`).then(res => setQuota(res.data));
+    axios.get(`${API}/flavors`, { headers: getAuthHeaders() }).then(res => setFlavors(res.data));
+    axios.get(`${API}/images`, { headers: getAuthHeaders() }).then(res => setImages(res.data));
+    axios.get(`${API}/quota`, { headers: getAuthHeaders() }).then(res => setQuota(res.data));
   }, []);
 
   const handleFlavorSelect = (key) => {
@@ -83,13 +136,22 @@ const BaseStep = forwardRef(function MyBaseStep(props, ref) {
     if (target) {
       setAddedCores(target.vcpu);
       setAddedRam(parseInt(target.ram));
-      updateContext?.({ flavor: key, vcpus: target.vcpu, ram: parseInt(target.ram) });
+      updateContext?.({
+        flavor: key,
+        flavor_name: target.label,
+        vcpus: target.vcpu,
+        ram: parseInt(target.ram),
+      });
     }
   };
 
   const handleImageSelect = (key) => {
     setSelectedImageKey(key);
-    updateContext?.({ image: key });
+    const target = images.find(img => img.key === key);
+    updateContext?.({
+      image: key,
+      image_name: target?.label ?? key,
+    });
   };
 
   const rowStyle = { display: 'flex', marginBottom: 36, gap: 32 };

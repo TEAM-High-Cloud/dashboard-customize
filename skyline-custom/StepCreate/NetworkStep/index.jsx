@@ -1,8 +1,29 @@
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Table, Tabs, message } from 'antd';
 import axios from 'axios';
+import globalRootStore from 'stores/root';
 
 const API = 'http://192.168.10.10:8003';
+
+const getAuthHeaders = () => {
+  const rawToken = localStorage.getItem('keystone_token');
+  let cleanToken = '';
+  if (rawToken) {
+    try {
+      const tokenObj = JSON.parse(rawToken);
+      cleanToken = tokenObj.value || '';
+    } catch (e) {
+      cleanToken = rawToken;
+    }
+  }
+
+  const projectId = globalRootStore.projectId || '';
+
+  return {
+    'X-Auth-Token': cleanToken,
+    'X-Project-Id': projectId,
+  };
+};
 
 const networkColumns = [
   { title: '이름', dataIndex: 'name' },
@@ -31,6 +52,24 @@ const NetworkStep = forwardRef(function MyNetworkStep(props, ref) {
   const [netTab, setNetTab] = useState('project');
 
   useImperativeHandle(ref, () => ({
+    wrappedInstance: {
+      checkFormInput: (callback) => {
+        if (!selectedNetworkKeys || selectedNetworkKeys.length === 0) {
+          message.error('네트워크를 선택해 주세요.');
+          return;
+        }
+        if (!selectedSecGroupKeys || selectedSecGroupKeys.length === 0) {
+          message.error('보안 그룹을 선택해 주세요.');
+          return;
+        }
+        callback({
+          network_ids: selectedNetworkKeys,
+          network_names: selectedNetworkKeys.map(k => networks.find(n => n.key === k)?.name ?? k),
+          security_groups: selectedSecGroupKeys,
+          security_group_names: selectedSecGroupKeys.map(k => securityGroups.find(sg => sg.key === k)?.name ?? k),
+        });
+      }
+    },
     validate: () => {
       if (!selectedNetworkKeys || selectedNetworkKeys.length === 0) {
         message.error('네트워크를 선택해 주세요.');
@@ -45,18 +84,20 @@ const NetworkStep = forwardRef(function MyNetworkStep(props, ref) {
   }));
 
   useEffect(() => {
-    axios.get(`${API}/networks`).then(res => setNetworks(res.data));
-    axios.get(`${API}/security-groups`).then(res => setSecurityGroups(res.data));
+    axios.get(`${API}/networks`, { headers: getAuthHeaders() }).then(res => setNetworks(res.data));
+    axios.get(`${API}/security-groups`, { headers: getAuthHeaders() }).then(res => setSecurityGroups(res.data));
   }, []);
 
   const handleNetworkSelect = (keys) => {
     setSelectedNetworkKeys(keys);
-    updateContext?.({ network_ids: keys });
+    const names = keys.map(k => networks.find(n => n.key === k)?.name ?? k);
+    updateContext?.({ network_ids: keys, network_names: names });
   };
 
   const handleSecGroupSelect = (keys) => {
     setSelectedSecGroupKeys(keys);
-    updateContext?.({ security_groups: keys });
+    const names = keys.map(k => securityGroups.find(sg => sg.key === k)?.name ?? k);
+    updateContext?.({ security_groups: keys, security_group_names: names });
   };
 
   const getFilteredNetworks = () => {

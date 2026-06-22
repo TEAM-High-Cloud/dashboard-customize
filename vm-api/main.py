@@ -1,6 +1,4 @@
-# vm-api/main.py
-
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -9,6 +7,10 @@ import os
 import re
 import logging
 import traceback
+import base64
+from openstack import connection
+from keystoneauth1.identity import v3
+from keystoneauth1 import session
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -22,17 +24,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def load_openrc(path="~/highcloud-admin-openrc.sh"):
-    with open(os.path.expanduser(path)) as f:
-        content = f.read()
-    for match in re.finditer(r'export\s+(\w+)="?([^"\n]+)"?', content):
-        key, value = match.group(1), match.group(2)
-        os.environ[key] = value
 
-load_openrc()
+AUTH_URL = "http://192.168.10.15:5000/v3"
 
-def get_conn():
-    return openstack.connect()
+def get_conn(token: str = None, project_id: str = None):
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 누락되었습니다.")
+    
+    try:
+        if project_id:
+            auth_plugin = v3.Token(
+                auth_url=AUTH_URL,
+                token=token,
+                project_id=project_id,
+                project_domain_id="10b5c69905f74f02b0d97b99a2f64910"
+            )
+        else:
+            auth_plugin = v3.Token(
+                auth_url=AUTH_URL,
+                token=token,
+            )
+        os_session = session.Session(auth=auth_plugin)
+        return connection.Connection(session=os_session, os_inherit=False)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"오픈스택 세션 생성 실패: {str(e)}")
 
 NETWORK_ID = "e702b8fe-c01c-4d3a-9f74-040da55f1cce"
 
@@ -45,10 +60,18 @@ class CreateInstanceRequest(BaseModel):
     network_ids: Optional[list] = None
     security_group: Optional[str] = None
     security_groups: Optional[list] = None
+    login_mode: Optional[str] = 'password'
+    login_user: Optional[str] = 'ubuntu'
+    login_password: Optional[str] = None
 
 @app.post("/create-instance")
-def create_instance(req: CreateInstanceRequest):
-    conn = get_conn()
+def create_instance(req: CreateInstanceRequest, x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
+    x_project_id: Optional[str] = Header(None, alias="X-Project-Id")):
+
+    logger.info(f"token: {x_auth_token[:20] if x_auth_token else None}") ### log
+    logger.info(f"project_id: {x_project_id}")
+
+    conn = get_conn(token=x_auth_token, project_id=x_project_id)
     try:
         net_id = (req.network_ids[0] if req.network_ids else None) or req.network_id or NETWORK_ID
 
@@ -62,9 +85,29 @@ def create_instance(req: CreateInstanceRequest):
             sg_name = 'default'
 
         keypairs = list(conn.compute.keypairs())
-        keypair_name = req.keypair if req.keypair else (keypairs[0].name if keypairs else None)
-        if not keypair_name:
-            raise HTTPException(status_code=400, detail="키페어를 먼저 생성해주세요.")
+        if req.login_mode == 'keypair':
+            keypair_name = req.keypair if req.keypair else (keypairs[0].name if keypairs else None)
+            if not keypair_name:
+                raise HTTPException(status_code=400, detail="키페어를 먼저 생성해주세요.")
+        else:
+            keypair_name = keypairs[0].name if keypairs else None
+
+        user_data = None
+        if req.login_mode == 'password' and req.login_password:
+            login_user = req.login_user or 'ubuntu'
+            cloud_config = f"""#cloud-config
+users:
+  - name: {login_user}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+chpasswd:
+  list: |
+    {login_user}:{req.login_password}
+  expire: false
+ssh_pwauth: true
+"""
+            user_data = base64.b64encode(cloud_config.encode()).decode()
 
         server = conn.compute.create_server(
             name=req.name,
@@ -73,6 +116,7 @@ def create_instance(req: CreateInstanceRequest):
             networks=[{"uuid": net_id}],
             key_name=keypair_name,
             security_groups=[{"name": sg_name}],
+            user_data=user_data,
         )
 
         return {
@@ -89,8 +133,9 @@ def create_instance(req: CreateInstanceRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/images")
-def get_images():
-    conn = get_conn()
+def get_images(x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
+    x_project_id: Optional[str] = Header(None, alias="X-Project-Id")):
+    conn = get_conn(token=x_auth_token, project_id=x_project_id)
     images = list(conn.image.images(status='active'))
     return [
         {
@@ -105,8 +150,9 @@ def get_images():
     ]
 
 @app.get("/flavors")
-def get_flavors():
-    conn = get_conn()
+def get_flavors(x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
+    x_project_id: Optional[str] = Header(None, alias="X-Project-Id")):
+    conn = get_conn(token=x_auth_token, project_id=x_project_id)
     flavors = list(conn.compute.flavors())
     return [
         {
@@ -121,21 +167,23 @@ def get_flavors():
     ]
 
 @app.get("/keypairs")
-def get_keypairs():
-    conn = get_conn()
+def get_keypairs(x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
+    x_project_id: Optional[str] = Header(None, alias="X-Project-Id")):
+    conn = get_conn(token=x_auth_token, project_id=x_project_id)
     keypairs = list(conn.compute.keypairs())
     return [{"key": kp.name, "name": kp.name} for kp in keypairs]
 
 @app.get("/networks")
-def get_networks():
-    conn = get_conn()
+def get_networks(x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
+    x_project_id: Optional[str] = Header(None, alias="X-Project-Id")):
+    conn = get_conn(token=x_auth_token, project_id=x_project_id)
     networks = list(conn.network.networks())
     return [
         {
             "key": net.id,
             "id": net.id,
-            "name": net.name,
-            "shared": net.is_shared,
+            "name": net.name if net.name else net.id,
+            "label": net.name if net.name else net.id,
             "external": net.is_router_external,
             "status": net.status,
             "admin_state_up": net.is_admin_state_up,
@@ -144,25 +192,34 @@ def get_networks():
     ]
 
 @app.get("/security-groups")
-def get_security_groups():
-    conn = get_conn()
+def get_security_groups(x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
+    x_project_id: Optional[str] = Header(None, alias="X-Project-Id")):
+    conn = get_conn(token=x_auth_token, project_id=x_project_id)
     project_id = conn.current_project_id
     sgs = list(conn.network.security_groups(project_id=project_id))
     return [
         {
             "key": sg.id,
-            "name": sg.name,
+            "name": sg.name if sg.name else sg.id,
+            "label": sg.name if sg.name else sg.id,
             "description": sg.description,
         }
         for sg in sgs
     ]
 
 @app.get("/quota")
-def get_quota():
-    conn = get_conn()
+def get_quota(x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
+    x_project_id: Optional[str] = Header(None, alias="X-Project-Id")):
+    conn = get_conn(token=x_auth_token, project_id=x_project_id)
     try:
         limits = conn.compute.get_limits()
         absolute = limits.absolute
+        
+        vol_quota = conn.block_storage.get_quota_set(
+            conn.current_project_id, usage=True
+        )
+        qs = vol_quota.quota_set if hasattr(vol_quota, 'quota_set') else vol_quota
+
         return {
             "instances": {
                 "used": absolute["totalInstancesUsed"],
@@ -175,7 +232,16 @@ def get_quota():
             "ram": {
                 "used": absolute["totalRAMUsed"],
                 "max": absolute["maxTotalRAMSize"]
-            }
+            },
+            "volumes": {
+                "used": getattr(getattr(qs, 'volumes', None), 'in_use', 0) or 0,
+                "max": getattr(getattr(qs, 'volumes', None), 'limit', 4) or 4,
+            },
+            "volume_gb": {
+                "used": getattr(getattr(qs, 'gigabytes', None), 'in_use', 0) or 0,
+                "max": getattr(getattr(qs, 'gigabytes', None), 'limit', 100) or 100,
+            },
         }
     except Exception as e:
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
