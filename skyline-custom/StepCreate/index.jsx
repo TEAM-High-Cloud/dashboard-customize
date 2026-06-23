@@ -180,6 +180,7 @@ export class StepCreate extends StepAction {
       login_mode: data.loginMode || 'password',
       login_user: data.login_user,
       login_password: data.login_password,
+      volume_size: data.bootFromVolume ? data.diskSize : null,
     };
 
     const projectId = globalRootStore.projectId || '';  

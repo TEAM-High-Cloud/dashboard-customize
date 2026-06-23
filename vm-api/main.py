@@ -63,6 +63,7 @@ class CreateInstanceRequest(BaseModel):
     login_mode: Optional[str] = 'password'
     login_user: Optional[str] = 'ubuntu'
     login_password: Optional[str] = None
+    volume_size: Optional[int] = None
 
 @app.post("/create-instance")
 def create_instance(req: CreateInstanceRequest, x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
@@ -109,15 +110,30 @@ ssh_pwauth: true
 """
             user_data = base64.b64encode(cloud_config.encode()).decode()
 
-        server = conn.compute.create_server(
+        server_kwargs = dict(
             name=req.name,
             flavor_id=req.flavor,
-            image_id=req.image,
             networks=[{"uuid": net_id}],
             key_name=keypair_name,
             security_groups=[{"name": sg_name}],
-            user_data=user_data,
         )
+
+        if user_data:
+            server_kwargs['user_data'] = user_data
+
+        if req.volume_size:
+            server_kwargs['block_device_mapping_v2'] = [{
+                "boot_index": 0,
+                "source_type": "image",
+                "destination_type": "volume",
+                "uuid": req.image,
+                "volume_size": req.volume_size,
+                "delete_on_termination": True,
+            }]
+        else:
+            server_kwargs['image_id'] = req.image
+
+        server = conn.compute.create_server(**server_kwargs)
 
         return {
             "status": "success",
@@ -142,7 +158,8 @@ def get_images(x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
             "key": img.id,
             "label": img.name,
             "os_version": getattr(img, "os_version", "-"),
-            "min_disk": f"{img.min_disk} GB",
+            "min_disk": img.min_disk,
+            "min_disk_label": f"{img.min_disk} GiB",
             "visibility": "공용" if img.visibility == "public" else "비공개",
             "size": f"{round(img.size / 1024 / 1024, 2)} MiB" if img.size else "-",
         }
@@ -160,10 +177,10 @@ def get_flavors(x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token")
             "label": f.name,
             "vcpu": f.vcpus,
             "ram": f"{round(f.ram / 1024)} GiB",
-            "disk": f"{f.disk} GiB",
+            "disk": f.disk,
+            "disk_label": f"{f.disk} GiB",
         }
         for f in flavors
-        if not f.name.endswith('.bfv')
     ]
 
 @app.get("/keypairs")

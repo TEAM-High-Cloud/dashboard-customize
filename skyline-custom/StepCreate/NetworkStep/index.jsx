@@ -68,9 +68,8 @@ const NetworkStep = forwardRef(function MyNetworkStep(props, ref) {
           security_groups: selectedSecGroupKeys,
           security_group_names: selectedSecGroupKeys.map(k => securityGroups.find(sg => sg.key === k)?.name ?? k),
         });
-      }
-    },
-    validate: () => {
+      },
+      validate: () => {
       if (!selectedNetworkKeys || selectedNetworkKeys.length === 0) {
         message.error('네트워크를 선택해 주세요.');
         return false;
@@ -80,7 +79,8 @@ const NetworkStep = forwardRef(function MyNetworkStep(props, ref) {
         return false;
       }
       return true;
-    }
+      }
+    },
   }));
 
   useEffect(() => {

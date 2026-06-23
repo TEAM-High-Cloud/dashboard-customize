@@ -29,7 +29,7 @@ const flavorColumns = [
   { title: '이름', dataIndex: 'label' },
   { title: 'CPU', dataIndex: 'vcpu', render: v => `${v} Core` },
   { title: '메모리', dataIndex: 'ram' },
-  { title: '디스크', dataIndex: 'disk' },
+  { title: '디스크', dataIndex: 'disk_label' },
 ];
 
 const imageColumns = [
@@ -89,6 +89,19 @@ const BaseStep = forwardRef(function MyBaseStep(props, ref) {
         message.error('OS 이미지를 선택해 주세요.');
         return;
       }
+
+      const selFlavor = flavors.find(f => f.key === selectedFlavorKey);
+      const selImage = images.find(img => img.key === selectedImageKey);
+      const isBfv = selFlavor?.disk === 0;
+      const minDisk = isBfv
+        ? Math.max(selImage?.min_disk ?? 0, 1)
+        : Math.max(selFlavor?.disk ?? 0, selImage?.min_disk ?? 0, 1);
+      
+      if (bootFromVolume && diskSize < minDisk) {
+        message.error(`디스크 크기는 최소 ${minDisk} GiB 이상이어야 합니다.`);
+        return;
+      }  
+
       if (quota) {
         const totalCores = quota.cores.used + addedCores;
         const totalRam = Math.round(quota.ram.used / 1024) + addedRam;
@@ -100,6 +113,7 @@ const BaseStep = forwardRef(function MyBaseStep(props, ref) {
           message.error('메모리 할당량이 부족합니다.');
           return;
         }
+
         if (bootFromVolume) {
           const volLeft = quota.volumes.max - quota.volumes.used;
           const volCapLeft = quota.volume_gb.max - quota.volume_gb.used;
@@ -115,17 +129,22 @@ const BaseStep = forwardRef(function MyBaseStep(props, ref) {
         vcpus: addedCores,
         ram: addedRam,
       });
-    }
-  },
-  validate: () => {
+    },
+    validate: () => {
     if (!selectedFlavorKey) { message.error('인스턴스 유형을 선택해 주세요.'); return false; }
     if (!selectedImageKey) { message.error('OS 이미지를 선택해 주세요.'); return false; }
     return true;
+    }
   }
 }));
 
   useEffect(() => {
-    axios.get(`${API}/flavors`, { headers: getAuthHeaders() }).then(res => setFlavors(res.data));
+    axios.get(`${API}/flavors`, { headers: getAuthHeaders() }).then(res => 
+      setFlavors([
+        ...res.data.filter(f => f.disk > 0),
+        ...res.data.filter(f => f.disk === 0),
+  ])
+);
     axios.get(`${API}/images`, { headers: getAuthHeaders() }).then(res => setImages(res.data));
     axios.get(`${API}/quota`, { headers: getAuthHeaders() }).then(res => setQuota(res.data));
   }, []);
@@ -141,6 +160,8 @@ const BaseStep = forwardRef(function MyBaseStep(props, ref) {
         flavor_name: target.label,
         vcpus: target.vcpu,
         ram: parseInt(target.ram),
+        is_bfv: target.disk === 0,
+      flavor_disk: target.disk,
       });
     }
   };
@@ -151,6 +172,7 @@ const BaseStep = forwardRef(function MyBaseStep(props, ref) {
     updateContext?.({
       image: key,
       image_name: target?.label ?? key,
+      image_min_disk: target?.min_disk ?? 0,
     });
   };
 
@@ -158,6 +180,13 @@ const BaseStep = forwardRef(function MyBaseStep(props, ref) {
   const labelStyle = { width: 160, fontSize: 14, fontWeight: 'bold', color: '#222', paddingTop: 4 };
   const contentStyle = { flex: 1 };
   const requiredStyle = <span style={{ color: '#ff4d4f', marginLeft: 4 }}>*</span>;
+  const selectedFlavor = flavors.find(f => f.key === selectedFlavorKey);
+  const selectedImage = images.find(img => img.key === selectedImageKey);
+  const isBfv = selectedFlavor?.disk === 0;
+  const minDisk = isBfv
+  ? Math.max(selectedImage?.min_disk ?? 0, 1)
+  : Math.max(selectedFlavor?.disk ?? 0, selectedImage?.min_disk ?? 0, 1);
+
 
   return (
     <div style={{ width: '100%', maxHeight: 'calc(100vh - 260px)', overflowY: 'auto', padding: '16px 24px', boxSizing: 'border-box' }}>
@@ -234,8 +263,11 @@ const BaseStep = forwardRef(function MyBaseStep(props, ref) {
               {bootFromVolume && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#f9f9f9', padding: '12px 16px', borderRadius: 6, fontSize: 12 }}>
                   <span style={{ color: '#555' }}>디스크 크기:</span>
-                  <InputNumber min={10} max={500} value={diskSize} onChange={(val) => { setDiskSize(val); updateContext?.({ diskSize: val }); }} />
+                  <InputNumber min={minDisk} max={500} value={diskSize} onChange={(val) => { setDiskSize(val); updateContext?.({ diskSize: val }); }} />
                   <span style={{ color: '#333' }}>GiB</span>
+                  <span style={{ color: '#ff4d4f', fontSize: 11 }}>
+                    {diskSize < minDisk ? `최소 ${minDisk} GiB 이상으로 설정해 주세요.` : ''}
+                  </span>
                   <span style={{ color: '#999', fontSize: 11 }}>(VM 삭제 시 디스크도 함께 삭제됩니다)</span>
                 </div>
               )}

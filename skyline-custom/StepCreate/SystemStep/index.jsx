@@ -78,9 +78,8 @@ const SystemStep = forwardRef(function MySystemStep(props, ref) {
           login_password: loginPassword,
           keypair: selectedKeypair,
         });
-      }
-    },
-    validate: () => {
+      },
+      validate: () => {
       const err = validateName(instanceName);
       if (err) { message.error(err); return false; }
       if (loginMode === 'password') {
@@ -92,6 +91,7 @@ const SystemStep = forwardRef(function MySystemStep(props, ref) {
         if (!selectedKeypair) { message.error('키페어를 선택해 주세요.'); return false; }
       }
       return true;
+      }
     }
   }));
 
