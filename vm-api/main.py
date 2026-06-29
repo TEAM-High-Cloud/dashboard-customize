@@ -25,7 +25,7 @@ app.add_middleware(
 )
 
 
-AUTH_URL = "http://192.168.10.15:5000/v3"
+AUTH_URL = "http://192.168.10.10:5000/v3"
 
 def get_conn(token: str = None, project_id: str = None):
     if not token:
